@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navegador de Inspección de Carbones - UNACEM</title>
+    
+    <!-- Librería FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Estilos Personalizados -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <!-- Menú Lateral -->
+    <aside class="sidebar">
+        <div>
+            <div class="logo-area">
+                <img id="img-logo" src="logo.png" alt="UNACEM Logo">
+            </div>
+            <ul class="nav-menu">
+                <li class="nav-item active" id="nav-motores" onclick="cambiarVista('motores')">
+                    <i class="fa-solid fa-gears" style="font-size: 16px;"></i> Motores
+                </li>
+                <li class="nav-item" id="nav-inicio" onclick="cambiarVista('inicio')">
+                    <i class="fa-solid fa-chart-pie"></i> Dashboard
+                </li>
+                <li class="nav-item" id="nav-predictivo" onclick="cambiarVista('predictivo')">
+                    <i class="fa-solid fa-clock"></i> Predictivo
+                </li>
+                <li class="nav-item" id="nav-reportes" onclick="cambiarVista('reportes')">
+                    <i class="fa-solid fa-file-invoice"></i> Reportes
+                </li>
+                <li class="nav-item" id="nav-historial" onclick="cambiarVista('historial')">
+                    <i class="fa-solid fa-clock-rotate-left"></i> Historial de Reportes
+                </li>
+                <li class="nav-item" id="nav-configuracion" onclick="cambiarVista('configuracion')">
+                    <i class="fa-solid fa-gear"></i> Configuración
+                </li>
+            </ul>
+
+            <!-- FILTROS SIDEBAR -->
+            <div class="sidebar-filters">
+                <div class="sidebar-filter-group">
+                    <label for="select-motor-filtro"><i class="fa-solid fa-gears"></i> Seleccionar Motor:</label>
+                    <select id="select-motor-filtro" onchange="seleccionarMotorDesdeFiltro(this.value)">
+                        <option value="">-- Seleccione Motor --</option>
+                    </select>
+                </div>
+
+                <div class="sidebar-filter-group">
+                    <label for="select-carbon-filtro"><i class="fa-solid fa-circle-dot"></i> Carbón:</label>
+                    <select id="select-carbon-filtro" onchange="aplicarFiltroRangoFechas()">
+                        <option value="TODOS">Todos los carbones</option>
+                    </select>
+                </div>
+
+                <div class="sidebar-filter-group">
+                    <label for="fecha-inicio"><i class="fa-regular fa-calendar-days"></i> Fecha Inicio (2026):</label>
+                    <input type="date" id="fecha-inicio" onchange="aplicarFiltroRangoFechas()">
+                </div>
+
+                <div class="sidebar-filter-group">
+                    <label for="fecha-fin"><i class="fa-regular fa-calendar-days"></i> Fecha Fin (2026):</label>
+                    <input type="date" id="fecha-fin" onchange="aplicarFiltroRangoFechas()">
+                </div>
+            </div>
+        </div>
+
+        <div style="padding: 12px; font-size: 10px; text-align: center; opacity: 0.8;">
+            Navegador DMEGC © 2026 / BASR
+        </div>
+    </aside>
+
+    <!-- Contenido Principal -->
+    <main class="main-wrapper">
+        <!-- BARRA SUPERIOR CORREGIDA -->
+        <header class="header" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 20px;">
+            <div class="header-left"></div>
+            
+            <div class="header-center" style="text-align: center;">
+                <h2 style="margin: 0;">INSPECCIÓN DE CARBONES</h2>
+                <span style="font-size: 0.85rem; opacity: 0.9;">Monitoreo · Análisis · Predicción</span>
+            </div>
+            
+            <div class="header-right" style="display: flex; align-items: center; gap: 15px;">
+                <button id="btn-sync-cloud" onclick="sincronizarBaseDesdePowerAutomate()" title="Actualizar datos desde la nube" 
+                        style="background: var(--primary-blue, #002244); color: #fff; border: 1px solid #38bdf8; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-arrows-rotate"></i> Actualizar Base
+                </button>
+                
+                <div style="color: #fff; font-size: 12px; text-align: right;">
+                    <small><i class="fa-regular fa-calendar-days"></i> Última actualización:</small><br>
+                    <strong id="lbl-fecha-actualizacion">--/--/---- --:--</strong>
+                </div>
+            </div>
+        </header>
+
+        <!-- SECCIÓN MOTORES (VISTA POR DEFECTO) -->
+        <section class="content-body" id="vista-motores">
+            <div class="card" style="padding: 15px;">
+                <div style="font-size: 15px; font-weight: 800; color: var(--primary-blue); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-gears" style="font-size: 18px; color: var(--accent-red);"></i> Catálogo General de Motores (18 Equipos en Monitoreo)
+                </div>
+
+                <div class="planta-group-title">Horno 3</div>
+                <div class="motors-grid" id="grid-horno-3"></div>
+
+                <div class="planta-group-title">Crudo 1</div>
+                <div class="motors-grid" id="grid-crudo-1"></div>
+
+                <div class="planta-group-title">Crudo 2</div>
+                <div class="motors-grid" id="grid-crudo-2"></div>
+
+                <div class="planta-group-title">Horno 2</div>
+                <div class="motors-grid" id="grid-horno-2"></div>
+            </div>
+        </section>
+
+        <!-- SECCIÓN DASHBOARD -->
+        <section class="content-body" id="vista-inicio" style="display: none;">
+            <div class="kpi-row">
+                <div class="kpi-card">
+                    <div class="kpi-icon kpi-blue"><i class="fa-solid fa-gears" style="font-size: 22px;"></i></div>
+                    <div class="kpi-data">
+                        <small>Total de Motores</small>
+                        <h3 id="kpi-total-motores">18</h3>
+                        <span class="kpi-subtext">en monitoreo</span>
+                    </div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-icon kpi-slate"><i class="fa-solid fa-cubes"></i></div>
+                    <div class="kpi-data">
+                        <small>Total de Carbones</small>
+                        <h3 id="kpi-total-carbones">--</h3>
+                        <span class="kpi-subtext" id="kpi-carbones-rango">(C1 - C24)</span>
+                    </div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-icon kpi-red"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                    <div class="kpi-data">
+                        <small>Carbones en alerta</small>
+                        <h3 id="kpi-carbones-alerta">0</h3>
+                        <span class="kpi-subtext" id="kpi-pct-alerta">(0%)</span>
+                    </div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-icon kpi-green"><i class="fa-solid fa-circle-check"></i></div>
+                    <div class="kpi-data">
+                        <small>En buen estado</small>
+                        <h3 id="kpi-carbones-bueno">0</h3>
+                        <span class="kpi-subtext" id="kpi-pct-bueno">(100%)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ESTADO MOTOR + CARBONES CIRCULAR + TABLA DETALLE -->
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <div class="card" id="box-estado-motor" style="width: 360px; position: relative;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span><i class="fa-solid fa-gears"></i> Estado Actual del Motor</span>
+                        <button class="btn-box-tool" title="Descargar Imagen" onclick="descargarContenedorComoImagen('box-estado-motor', 'Estado_Motor')"><i class="fa-solid fa-camera"></i></button>
+                    </div>
+                    <div class="motor-card-body">
+                        <div class="motor-img-container" style="position: relative;">
+                            <img id="img-motor" src="" alt="Motor" style="display: none; cursor: pointer;" onclick="abrirModalZoomMotor()">
+                            <button class="btn-lupa-motor" onclick="abrirModalZoomMotor()" title="Ampliar imagen"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+                            <span id="img-placeholder" style="color: #94a3b8; font-size: 11px; text-align: center;">Sin foto</span>
+                        </div>
+                        <div class="motor-details">
+                            <div class="detail-group"><span class="detail-label">Motor:</span><span class="detail-value" id="val-motor">--</span></div>
+                            <div class="detail-group"><span class="detail-label">Código:</span><span class="detail-value" id="val-codigo">--</span></div>
+                            <div class="detail-group"><span class="detail-label">Ub. Técnica:</span><span class="detail-value" id="val-ubicacion-tecnica">--</span></div>
+                            <div class="detail-group"><span class="detail-label">Ub. Planta:</span><span class="detail-value" id="val-ubicacion-planta">--</span></div>
+                            <div class="detail-group"><span class="detail-label">Contratista:</span><span class="detail-value" id="val-contratista">--</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" id="box-carbones-circular" style="width: 320px; position: relative;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span>Estado de Carbones</span>
+                        <button class="btn-box-tool" title="Descargar Imagen" onclick="descargarContenedorComoImagen('box-carbones-circular', 'Carbones_Circular')"><i class="fa-solid fa-camera"></i></button>
+                    </div>
+                    <div class="carbones-container" id="contenedor-carbones">
+                        <img id="img-motor-center" src="Motor.png" class="motor-center-img" onerror="this.src='logo.png'">
+                    </div>
+                </div>
+
+                <div class="card" id="box-tabla-carbones" style="flex: 1; min-width: 440px; position: relative;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span id="titulo-tabla-carbones">Detalle de Carbones y Estado Final</span>
+                        <button class="btn-box-tool" title="Descargar Imagen Completa" onclick="descargarContenedorComoImagen('box-tabla-carbones', 'Tabla_Detalle_Carbones')"><i class="fa-solid fa-camera"></i></button>
+                    </div>
+                    <div class="table-carbones-container" id="scroll-tabla-carbones">
+                        <table class="table-custom">
+                            <thead>
+                                <tr>
+                                    <th>Ubicación técnica</th>
+                                    <th>Carbón</th>
+                                    <th>mmNuevo</th>
+                                    <th>mmAnterior</th>
+                                    <th>mmUltimo</th>
+                                    <th>Límite Cambio</th>
+                                    <th>% Vida Útil</th>
+                                    <th>Desgaste Sem.</th>
+                                    <th>EstadoFinal</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-carbones">
+                                <tr><td colspan="9" style="text-align:center; color:#94a3b8;">Sin datos seleccionados</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GRÁFICA TENDENCIA DESGASTE -->
+            <div class="card" id="box-grafico-tendencia" style="position: relative;">
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span><i class="fa-solid fa-chart-line"></i> Tendencia Desgaste Carbones (mm)</span>
+                    <div style="display: flex; gap: 6px;">
+                        <button class="btn-box-tool" title="Mover a la izquierda" onclick="desplazarGrafico('chartDesgaste', 100)"><i class="fa-solid fa-chevron-left"></i></button>
+                        <button class="btn-box-tool" title="Mover a la derecha" onclick="desplazarGrafico('chartDesgaste', -100)"><i class="fa-solid fa-chevron-right"></i></button>
+                        <button class="btn-box-tool" title="Restablecer Zoom Original" onclick="resetearZoomTendencia()"><i class="fa-solid fa-arrows-rotate"></i> Reset</button>
+                        <button class="btn-box-tool" title="Descargar Imagen" onclick="descargarContenedorComoImagen('box-grafico-tendencia', 'Grafico_Tendencia_Desgaste')"><i class="fa-solid fa-camera"></i></button>
+                    </div>
+                </div>
+                <div class="chart-container-large">
+                    <canvas id="chartDesgaste"></canvas>
+                </div>
+            </div>
+
+            <!-- BLOQUE PARÁMETROS Y GRÁFICAS MÍNIMAS -->
+            <div id="bloque-integral-temperaturas">
+                <div class="card" id="box-params-relevantes" style="padding: 12px 15px; position: relative;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <span id="titulo-parametros-relevantes" style="font-size: 13px; font-weight: 800; color: var(--primary-blue);">
+                            Parámetros Relevantes (Última Medición)
+                        </span>
+                        <button class="btn-box-tool btn-box-tool-alt" title="Descargar Imagen de Todo el Bloque Térmico" onclick="descargarContenedorComoImagen('bloque-integral-temperaturas', 'Modulo_Integral_Temperaturas')">
+                            <i class="fa-solid fa-camera"></i> Capturar Módulo Térmico
+                        </button>
+                    </div>
+                    
+                    <div class="params-compact-container">
+                        <div class="motor-diagram-box">
+                            <img src="logo.png" id="img-motor-esquema" alt="Esquema Motor">
+                        </div>
+
+                        <div class="params-compact-grid">
+                            <div class="param-compact-item">
+                                <i class="fa-solid fa-bolt"></i>
+                                <div class="param-compact-info"><small>CORRIENTE</small><strong id="val-corriente">-- A</strong></div>
+                            </div>
+                            <div class="param-compact-item">
+                                <i class="fa-solid fa-temperature-three-quarters"></i>
+                                <div class="param-compact-info"><small>TEMP. K</small><strong id="val-temp-k">-- °C</strong></div>
+                            </div>
+                            <div class="param-compact-item">
+                                <i class="fa-solid fa-temperature-three-quarters"></i>
+                                <div class="param-compact-info"><small>TEMP. M</small><strong id="val-temp-m">-- °C</strong></div>
+                            </div>
+                            <div class="param-compact-item">
+                                <i class="fa-solid fa-temperature-three-quarters"></i>
+                                <div class="param-compact-info"><small>TEMP. L</small><strong id="val-temp-l">-- °C</strong></div>
+                            </div>
+                            <div class="param-compact-item">
+                                <i class="fa-solid fa-temperature-three-quarters"></i>
+                                <div class="param-compact-info"><small>CARCAZA</small><strong id="val-temp-carcaza">-- °C</strong></div>
+                            </div>
+                            <div class="param-compact-item">
+                                <i class="fa-solid fa-temperature-three-quarters"></i>
+                                <div class="param-compact-info"><small>LADO LIBRE</small><strong id="val-temp-llibre">-- °C</strong></div>
+                            </div>
+                            <div class="param-compact-item">
+                                <i class="fa-solid fa-temperature-three-quarters"></i>
+                                <div class="param-compact-info"><small>LADO ACOPLE</small><strong id="val-temp-lacople">-- °C</strong></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" style="padding: 12px 15px; margin-top: 12px;">
+                    <div style="font-size: 12px; font-weight: 700; color: var(--primary-blue); margin-bottom: 10px;">
+                        Histórico de Parámetros Operativos
+                    </div>
+                    <div class="mini-charts-grid">
+                        <div class="mini-chart-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <h5><i class="fa-solid fa-bolt" style="color: #16a34a;"></i> Corriente (A)</h5>
+                                <div class="mini-nav-btns">
+                                    <button onclick="desplazarGrafico('chartMiniCorriente', 60)"><i class="fa-solid fa-chevron-left"></i></button>
+                                    <button onclick="desplazarGrafico('chartMiniCorriente', -60)"><i class="fa-solid fa-chevron-right"></i></button>
+                                </div>
+                            </div>
+                            <div class="mini-chart-canvas-box"><canvas id="chartMiniCorriente"></canvas></div>
+                        </div>
+
+                        <div class="mini-chart-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <h5><i class="fa-solid fa-temperature-three-quarters" style="color: #d90429;"></i> Temp. K (°C)</h5>
+                                <div class="mini-nav-btns">
+                                    <button onclick="desplazarGrafico('chartMiniK', 60)"><i class="fa-solid fa-chevron-left"></i></button>
+                                    <button onclick="desplazarGrafico('chartMiniK', -60)"><i class="fa-solid fa-chevron-right"></i></button>
+                                </div>
+                            </div>
+                            <div class="mini-chart-canvas-box"><canvas id="chartMiniK"></canvas></div>
+                        </div>
+
+                        <div class="mini-chart-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <h5><i class="fa-solid fa-temperature-three-quarters" style="color: #ea580c;"></i> Temp. M (°C)</h5>
+                                <div class="mini-nav-btns">
+                                    <button onclick="desplazarGrafico('chartMiniM', 60)"><i class="fa-solid fa-chevron-left"></i></button>
+                                    <button onclick="desplazarGrafico('chartMiniM', -60)"><i class="fa-solid fa-chevron-right"></i></button>
+                                </div>
+                            </div>
+                            <div class="mini-chart-canvas-box"><canvas id="chartMiniM"></canvas></div>
+                        </div>
+
+                        <div class="mini-chart-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <h5><i class="fa-solid fa-temperature-three-quarters" style="color: #0284c7;"></i> Temp. L (°C)</h5>
+                                <div class="mini-nav-btns">
+                                    <button onclick="desplazarGrafico('chartMiniL', 60)"><i class="fa-solid fa-chevron-left"></i></button>
+                                    <button onclick="desplazarGrafico('chartMiniL', -60)"><i class="fa-solid fa-chevron-right"></i></button>
+                                </div>
+                            </div>
+                            <div class="mini-chart-canvas-box"><canvas id="chartMiniL"></canvas></div>
+                        </div>
+
+                        <div class="mini-chart-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <h5><i class="fa-solid fa-temperature-three-quarters" style="color: #0284c7;"></i> Carcaza (°C)</h5>
+                                <div class="mini-nav-btns">
+                                    <button onclick="desplazarGrafico('chartMiniCarcaza', 60)"><i class="fa-solid fa-chevron-left"></i></button>
+                                    <button onclick="desplazarGrafico('chartMiniCarcaza', -60)"><i class="fa-solid fa-chevron-right"></i></button>
+                                </div>
+                            </div>
+                            <div class="mini-chart-canvas-box"><canvas id="chartMiniCarcaza"></canvas></div>
+                        </div>
+
+                        <div class="mini-chart-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <h5><i class="fa-solid fa-temperature-three-quarters" style="color: #2563eb;"></i> Lado Libre (°C)</h5>
+                                <div class="mini-nav-btns">
+                                    <button onclick="desplazarGrafico('chartMiniLLibre', 60)"><i class="fa-solid fa-chevron-left"></i></button>
+                                    <button onclick="desplazarGrafico('chartMiniLLibre', -60)"><i class="fa-solid fa-chevron-right"></i></button>
+                                </div>
+                            </div>
+                            <div class="mini-chart-canvas-box"><canvas id="chartMiniLLibre"></canvas></div>
+                        </div>
+
+                        <div class="mini-chart-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <h5><i class="fa-solid fa-temperature-three-quarters" style="color: #4f46e5;"></i> Lado Acople (°C)</h5>
+                                <div class="mini-nav-btns">
+                                    <button onclick="desplazarGrafico('chartMiniLAcople', 60)"><i class="fa-solid fa-chevron-left"></i></button>
+                                    <button onclick="desplazarGrafico('chartMiniLAcople', -60)"><i class="fa-solid fa-chevron-right"></i></button>
+                                </div>
+                            </div>
+                            <div class="mini-chart-canvas-box"><canvas id="chartMiniLAcople"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECCIÓN PREDICTIVO -->
+        <section class="content-body" id="vista-predictivo" style="display: none;">
+            <div class="kpi-row">
+                <div class="kpi-card">
+                    <div class="kpi-icon kpi-red"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                    <div class="kpi-data">
+                        <small>Cambio Crítico (≤ 10 Días)</small>
+                        <h3 id="kpi-predictivo-critico">0</h3>
+                        <span class="kpi-subtext">reemplazo urgente</span>
+                    </div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-icon" style="background: #fef9c3; color: #a16207;"><i class="fa-solid fa-clock"></i></div>
+                    <div class="kpi-data">
+                        <small>En Observación (11-60 Días)</small>
+                        <h3 id="kpi-predictivo-atencion">0</h3>
+                        <span class="kpi-subtext">programar mantenimiento</span>
+                    </div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-icon kpi-green"><i class="fa-solid fa-circle-check"></i></div>
+                    <div class="kpi-data">
+                        <small>Operativos (> 60 Días)</small>
+                        <h3 id="kpi-predictivo-operativo">0</h3>
+                        <span class="kpi-subtext">condición estable</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" id="box-grafico-predictivo">
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span><i class="fa-solid fa-chart-line"></i> DESGASTE PREDICTIVO POR CARBÓN (Real vs Proyectado)</span>
+                    <button class="btn-box-tool" title="Descargar Imagen" onclick="descargarContenedorComoImagen('box-grafico-predictivo', 'Grafico_Predictivo')"><i class="fa-solid fa-camera"></i></button>
+                </div>
+                <div class="chart-container-large">
+                    <canvas id="chartPredictivoGlobal"></canvas>
+                </div>
+            </div>
+
+            <div class="card" id="box-tabla-predictivo">
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span><i class="fa-solid fa-table-list"></i> ESTADO PREDICTIVO DE CARBONES PRÓXIMOS A VENCER</span>
+                    <button class="btn-box-tool" title="Descargar Imagen Completa" onclick="descargarContenedorComoImagen('box-tabla-predictivo', 'Tabla_Predictivo')"><i class="fa-solid fa-camera"></i></button>
+                </div>
+                <div class="table-carbones-container" style="max-height: 380px;">
+                    <table class="table-custom">
+                        <thead>
+                            <tr>
+                                <th>Carbón</th>
+                                <th>Motor</th>
+                                <th>Ub. Técnica</th>
+                                <th>mmÚltimo</th>
+                                <th>Lim. Cambio</th>
+                                <th>Desgaste Prom. (mm/día)</th>
+                                <th>Días Restantes</th>
+                                <th>Fecha Cambio Estimada</th>
+                                <th>Riesgo</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-predictivo">
+                            <tr><td colspan="9" style="text-align:center; color:#94a3b8;">Cargando proyecciones...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECCIÓN REPORTES -->
+        <section class="content-body" id="vista-reportes" style="display: none;">
+            <div class="card" id="area-reporte-pdf">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color); padding-bottom: 10px; margin-bottom: 15px;">
+                    <div>
+                        <h3 style="color: var(--primary-blue); font-size: 16px; font-weight: 800;">
+                            <i class="fa-solid fa-file-invoice"></i> INFORME FINAL DE INSPECCIÓN Y ESTADO DE CARBONES
+                        </h3>
+                        <span style="font-size: 11px; color: #64748b;">Consolidado General Inspección de Carbones DMEGC</span>
+                    </div>
+                    <div class="no-print" style="display: flex; gap: 8px;">
+                        <button class="btn-action" style="font-size: 11px; background: #dc2626; cursor: pointer;" onclick="descargarReportePDF()">
+                            <i class="fa-solid fa-file-pdf"></i> Descargar PDF 
+                        </button>
+                        <button class="btn-action" style="font-size: 11px; background: #16a34a; cursor: pointer;" onclick="descargarReporteExcel()">
+                            <i class="fa-solid fa-file-excel"></i> Descargar Excel
+                        </button>
+                    </div>
+                </div>
+
+                <div class="kpi-row" style="margin-bottom: 15px;">
+                    <div class="kpi-card">
+                        <div class="kpi-icon kpi-blue"><i class="fa-solid fa-gears" style="font-size: 22px;"></i></div>
+                        <div class="kpi-data">
+                            <small>Total Motores</small>
+                            <h3 id="reporte-total-motores">18</h3>
+                        </div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon kpi-green"><i class="fa-solid fa-circle-check"></i></div>
+                        <div class="kpi-data">
+                            <small>Operativos</small>
+                            <h3 id="reporte-total-operativos">0</h3>
+                        </div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon kpi-red"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                        <div class="kpi-data">
+                            <small>Atención Crítica</small>
+                            <h3 id="reporte-total-criticos">0</h3>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="contenedor-reportes-motores"></div>
+
+                <div style="margin-top: 20px; font-size: 9px; color: #94a3b8; text-align: right; border-top: 1px solid #e2e8f0; padding-top: 5px;">
+                    Documento generado por el Sistema de Inspección de Carbones / DMEGC | Fecha: <span id="pdf-fecha-generacion">--/--/----</span>
+                </div>
+            </div>
+
+            <!-- PROGRAMADOR INFERIOR DE ENVÍOS AUTOMÁTICOS POR CORREO -->
+            <div class="card no-print" style="padding: 15px; background: #f8fafc; border: 1px solid #cbd5e1;">
+                <div style="font-size: 13px; font-weight: 800; color: var(--primary-blue); margin-bottom: 8px;">
+                    <i class="fa-regular fa-clock"></i> Programación de Despacho Automático a Outlook
+                </div>
+                <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <label style="font-size: 11px; font-weight: bold;">Día de Despacho:</label>
+                        <select id="cfg-dia-envio" style="padding: 5px 8px; border-radius: 4px; border: 1px solid #cbd5e1; font-size: 11px;">
+                            <option value="5">Todos los Viernes</option>
+                            <option value="6">Todos los Sábados</option>
+                            <option value="1">Todos los Lunes</option>
+                            <option value="todos">Cualquier Día (Al Actualizar)</option>
+                        </select>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <label style="font-size: 11px; font-weight: bold;">Hora Mínima de Envío:</label>
+                        <input type="time" id="cfg-hora-envio" value="18:00" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1; font-size: 11px;">
+                    </div>
+
+                    <button class="btn-action" style="padding: 6px 12px; font-size: 11px; background: var(--primary-blue);" onclick="guardarConfiguracionEnvio()">
+                        <i class="fa-solid fa-floppy-disk"></i> Guardar Horario
+                    </button>
+
+                    <button class="btn-action" style="padding: 6px 12px; font-size: 11px; background: #16a34a;" onclick="enviarReporteOutlookAutomatico(true)">
+                        <i class="fa-solid fa-paper-plane"></i> Enviar Ahora Manualmente
+                    </button>
+
+                    <span id="lbl-status-envio" style="font-size: 11px; font-weight: bold; color: #64748b;"></span>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECCIÓN HISTORIAL DE REPORTES -->
+        <section class="content-body" id="vista-historial" style="display: none;">
+            <div class="card" style="padding: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color); padding-bottom: 10px; margin-bottom: 15px;">
+                    <div>
+                        <h3 style="color: var(--primary-blue); font-size: 16px; font-weight: 800;">
+                            <i class="fa-solid fa-clock-rotate-left"></i> Historial de Reportes Emitidos
+                        </h3>
+                        <span style="font-size: 11px; color: #64748b;">Almacén centralizado desde LINK_PDF_CARBON.xlsx</span>
+                    </div>
+                </div>
+
+                <div id="lista-historial-contenedor">
+                    <!-- Se puebla dinámicamente desde el Excel central -->
+                </div>
+            </div>
+        </section>
+
+        <!-- SECCIÓN CONFIGURACIÓN -->
+        <section class="content-body" id="vista-configuracion" style="display: none;">
+            <div class="card" style="max-width: 650px; margin: 20px auto; width: 100%;">
+                <div class="card-header">
+                    <i class="fa-solid fa-file-excel"></i> Importar Base de Datos Excel (.xlsx, .xls, .xlsm)
+                </div>
+                <div style="padding: 20px;">
+                    <p style="margin-bottom: 12px; font-size: 13px; color: #475569;">
+                        Selecciona o arrastra tu archivo <strong>`BASE DE DATOS CONSOLIDADO.xlsx`</strong> o <strong>`.xlsm`</strong>.
+                    </p>
+
+                    <input type="file" id="input-excel-config" accept=".xlsx, .xls, .xlsm" style="display: none;" onchange="procesarExcelConfig(event)">
+                    
+                    <div class="drop-zone" onclick="document.getElementById('input-excel-config').click()">
+                        <i class="fa-solid fa-cloud-arrow-up" style="font-size: 36px; color: var(--primary-blue); margin-bottom: 8px;"></i>
+                        <br>
+                        <strong>Haz clic para cargar BASE DE DATOS CONSOLIDADO (.xlsx / .xlsm)</strong>
+                    </div>
+
+                    <div id="status-carga" style="margin-top: 12px; font-weight: 600; font-size: 12px;"></div>
+
+                    <button class="btn-action" onclick="cambiarVista('motores')">
+                        <i class="fa-solid fa-arrow-left"></i> Volver a Motores
+                    </button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- MODAL LUPA PARA VER MOTOR EN GRANDE -->
+    <div id="modal-zoom-motor" class="modal-zoom-overlay" onclick="cerrarModalZoomMotor()">
+        <div class="modal-zoom-content" onclick="event.stopPropagation()">
+            <span class="modal-zoom-close" onclick="cerrarModalZoomMotor()">&times;</span>
+            <img id="img-modal-motor" src="" alt="Motor Ampliado">
+            <div id="modal-motor-titulo" style="margin-top: 10px; font-weight: 800; color: var(--primary-blue); text-align: center;"></div>
+        </div>
+    </div>
+
+    <!-- Librerías JavaScript -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <!-- Script de la Aplicación -->
+    <script src="app.js"></script>
+</body>
+</html>
