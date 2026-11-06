@@ -14,14 +14,14 @@ const WEBHOOK_OUTLOOK_URL = "https://default6d25241940fe4964bb31e8aaa96d97.66.en
 const CORREOS_DESTINO = "hernan.diaz@unacem.pe,braulio.siancas@unacem.pe";
 const URL_WEBHOOK_CONSULTA_EXCEL = "https://default6d25241940fe4964bb31e8aaa96d97.66.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/28/workflows/df4f4ad8529d46e9b4e125d5b888bf86/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=I_0c8OtCiw-zAl-WYH5rR3EuPWYi0jrmqrn1YhvrpNQ";
 
-// NORMALIZACIÓN ULTRA ROBUSTA PARA EVITAR DESFASE ENTRE MÓVIL Y PC
+// NORMALIZACIÓN DE TEXTO
 function normalizarTexto(texto) {
     return String(texto || '')
         .trim()
         .toLowerCase()
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-z0-9]/g, ""); // Elimina espacios, guiones y símbolos especiales
+        .replace(/[^a-z0-9]/g, "");
 }
 
 async function sincronizarBaseDesdePowerAutomate() {
@@ -35,7 +35,7 @@ async function sincronizarBaseDesdePowerAutomate() {
 
     try {
         if (iconoSync) iconoSync.classList.add('fa-spin');
-        console.log("Conectando con Power Automate para descargar el Excel actualizado de SharePoint...");
+        console.log("Conectando con Power Automate...");
 
         const separador = URL_WEBHOOK_CONSULTA_EXCEL.includes('?') ? '&' : '?';
         const urlPeticion = `${URL_WEBHOOK_CONSULTA_EXCEL}${separador}t=${new Date().getTime()}`;
@@ -48,18 +48,18 @@ async function sincronizarBaseDesdePowerAutomate() {
 
         const jsonRespuesta = await respuesta.json();
 
-        // 1. Decodificar y procesar BASE DE DATOS.xlsm (Mediciones de motores, límites e inspecciones)
+        // 1. Decodificar BASE DE DATOS.xlsm
         if (jsonRespuesta.baseDatos) {
             const binaryBase = atob(jsonRespuesta.baseDatos);
             const bytesBase = new Uint8Array(binaryBase.length);
             for (let i = 0; i < binaryBase.length; i++) bytesBase[i] = binaryBase.charCodeAt(i);
             const wbBase = XLSX.read(bytesBase, { type: 'array' });
 
-            // A) Extraer Motores
+            // A) Motores
             const sheetMotoresName = wbBase.SheetNames.find(n => normalizarTexto(n).includes('motor')) || wbBase.SheetNames[0];
             db.motores = extraerMatrizHoja(wbBase.Sheets[sheetMotoresName]);
 
-            // B) EXTRAER LÍMITES INDIVIDUALES (Solución garantizada para móviles)
+            // B) Límites
             const sheetLimitesName = wbBase.SheetNames.find(n => {
                 const norm = normalizarTexto(n);
                 return norm === 'limites' || norm.includes('limite');
@@ -84,31 +84,36 @@ async function sincronizarBaseDesdePowerAutomate() {
                 });
             }
 
-            // C) Extraer Inspecciones
+            // C) Inspecciones (Identificando origen SISAC / BBTI / POWER)
             db.inspecciones = [];
             wbBase.SheetNames.forEach(sName => {
                 const norm = normalizarTexto(sName);
+                let origenNombre = 'SISAC';
+                if (norm.includes('bbti')) origenNombre = 'BBTI';
+                else if (norm.includes('power')) origenNombre = 'POWER';
+                else if (norm.includes('sisac')) origenNombre = 'SISAC';
+
                 if (norm.includes('power') || norm.includes('bbti') || norm.includes('sisac')) {
-                    db.inspecciones = db.inspecciones.concat(extraerMatrizHoja(wbBase.Sheets[sName]));
+                    const filasHoja = extraerMatrizHoja(wbBase.Sheets[sName]);
+                    filasHoja.forEach(f => f._origenHoja = origenNombre);
+                    db.inspecciones = db.inspecciones.concat(filasHoja);
                 }
             });
             db.inspecciones.forEach(i => i._dateObj = parsearFecha(i['Fecha']));
         }
 
-        // 2. Decodificar y procesar LINK_PDF_CARBON.xlsx (Historial de enlaces a SharePoint)
+        // 2. Historial de reportes PDF
         if (jsonRespuesta.historial) {
             const binaryHist = atob(jsonRespuesta.historial);
             const bytesHist = new Uint8Array(binaryHist.length);
             for (let i = 0; i < binaryHist.length; i++) bytesHist[i] = binaryHist.charCodeAt(i);
             const wbHist = XLSX.read(bytesHist, { type: 'array' });
-
             db.historialExcel = extraerMatrizHoja(wbHist.Sheets[wbHist.SheetNames[0]]);
         }
 
         const hoy = new Date();
         const fechaStr = hoy.toLocaleDateString('es-PE') + ' ' + hoy.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
 
-        // REEMPLAZAR TOTALMENTE EL LOCALSTORAGE PARA LIMPIAR LA MEMORIA ANTERIOR DEL CELULAR
         localStorage.removeItem('unacem_db_consolidado');
         localStorage.setItem('unacem_db_consolidado', JSON.stringify(db));
         localStorage.setItem('unacem_db_fecha', fechaStr);
@@ -122,9 +127,8 @@ async function sincronizarBaseDesdePowerAutomate() {
         const vistaActiva = document.querySelector('.nav-item.active')?.id.replace('nav-', '') || 'motores';
         cambiarVista(vistaActiva);
 
-        console.log(`✅ Base e historial sincronizados. Límites cargados:`, Object.keys(db.limites).length);
     } catch (err) {
-        console.warn("Fallo al conectar con Power Automate, usando datos locales:", err);
+        console.warn("Error al sincronizar datos:", err);
     } finally {
         if (iconoSync) iconoSync.classList.remove('fa-spin');
     }
@@ -132,10 +136,8 @@ async function sincronizarBaseDesdePowerAutomate() {
 
 document.addEventListener('DOMContentLoaded', function() {
     const logoEl = document.getElementById('img-logo');
-    if (logoEl) {
-        logoEl.onerror = function() { logoEl.src = '../logo.png'; };
-    }
-    
+    if (logoEl) logoEl.onerror = function() { logoEl.src = '../logo.png'; };
+
     cargarDatosGuardados();
     cargarConfiguracionEnvio();
     sincronizarBaseDesdePowerAutomate();
@@ -145,9 +147,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function cambiarVista(vista) {
     document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
-    
-    const navId = `nav-${vista}`;
-    document.getElementById(navId)?.classList.add('active');
+    document.getElementById(`nav-${vista}`)?.classList.add('active');
 
     ['motores', 'inicio', 'predictivo', 'reportes', 'historial', 'configuracion'].forEach(v => {
         const el = document.getElementById(`vista-${v}`);
@@ -157,9 +157,7 @@ function cambiarVista(vista) {
     if (vista === 'motores') {
         renderizarCatalogoMotores();
     } else if (vista === 'inicio') {
-        if (db.motores && db.motores.length > 0) {
-            seleccionarMotorPorIndice(motorIndexSeleccionado);
-        }
+        if (db.motores && db.motores.length > 0) seleccionarMotorPorIndice(motorIndexSeleccionado);
     } else if (vista === 'predictivo') {
         requestAnimationFrame(() => { renderizarModuloPredictivo(); });
     } else if (vista === 'reportes') {
@@ -171,13 +169,9 @@ function cambiarVista(vista) {
 
 function evaluarTemperaturaIndustrial(tempVal) {
     const t = parseFloat(tempVal);
-    if (isNaN(t) || t < 90) {
-        return { estado: 'NORMAL', esAlerta: false, recomendacion: 'Operación normal, continuar monitoreo.', color: '#16a34a' };
-    }
-    if (t > 100) {
-        return { estado: 'CRÍTICO', esAlerta: true, recomendacion: 'Temperatura superior a 100°C. Intervención prioritaria.', color: '#dc2626' };
-    }
-    return { estado: 'ALARMA', esAlerta: true, recomendacion: 'Temperatura entre 90°C y 100°C. Programar inspección y ventilación.', color: '#ea580c' };
+    if (isNaN(t) || t < 90) return { estado: 'NORMAL', esAlerta: false, recomendacion: 'Operación normal, continuar monitoreo.', color: '#16a34a' };
+    if (t > 100) return { estado: 'CRÍTICO', esAlerta: true, recomendacion: 'Temperatura superior a 100°C. Intervención prioritaria.', color: '#dc2626' };
+    return { estado: 'ALARMA', esAlerta: true, recomendacion: 'Temperatura entre 90°C y 100°C. Programar inspección.', color: '#ea580c' };
 }
 
 function obtenerNombreCarbonConFase(ubTecnica, cKey) {
@@ -190,13 +184,11 @@ function obtenerNombreCarbonConFase(ubTecnica, cKey) {
         if (num >= 4 && num <= 6) return `C${num}-L`;
         if (num >= 7 && num <= 9) return `C${num}-M`;
     }
-
     if (cod.includes('3335')) {
         if (num >= 1 && num <= 4) return `C${num}-K`;
         if (num >= 5 && num <= 8) return `C${num}-L`;
         if (num >= 9 && num <= 12) return `C${num}-M`;
     }
-
     return `C${num}`;
 }
 
@@ -238,9 +230,7 @@ function cargarDatosGuardados() {
             db = JSON.parse(dbGuardada);
             if (!db.limites) db.limites = {};
             if (db.inspecciones && Array.isArray(db.inspecciones)) {
-                db.inspecciones.forEach(i => {
-                    i._dateObj = parsearFecha(i['Fecha']);
-                });
+                db.inspecciones.forEach(i => { i._dateObj = parsearFecha(i['Fecha']); });
             }
             document.getElementById('lbl-fecha-actualizacion').innerText = fechaGuardada || '--/--/----';
             poblarSelectorMotoresSidebar();
@@ -255,9 +245,7 @@ function establecerRangoFechasPredeterminado() {
     const fIniInput = document.getElementById('fecha-inicio');
     const fFinInput = document.getElementById('fecha-fin');
 
-    if (fIniInput && !fIniInput.value) {
-        fIniInput.value = "2026-01-01";
-    }
+    if (fIniInput && !fIniInput.value) fIniInput.value = "2026-01-01";
 
     if (fFinInput && !fFinInput.value && db.inspecciones && db.inspecciones.length > 0) {
         const fechasValidas = db.inspecciones.filter(i => i._dateObj).map(i => i._dateObj.getTime());
@@ -268,22 +256,31 @@ function establecerRangoFechasPredeterminado() {
     }
 }
 
+// POBLAR EL SELECTOR DEL SIDEBAR MOSTRANDO SISAC / BBTI / POWER EN EL TEXTO DEL MOTOR
 function poblarSelectorMotoresSidebar() {
     const select = document.getElementById('select-motor-filtro');
     if (!select) return;
     
     const valorSeleccionadoPrevio = select.value;
-    select.innerHTML = '<option value="">-- Seleccione Motor --</option>';
+    select.innerHTML = '<option value="TODOS">-- Todos los Motores --</option>';
 
     if (!db.motores || db.motores.length === 0) return;
 
     db.motores.forEach((m, idx) => {
         const ubTecnica = m['Ubicacion tecnica'] || m['Ubicación técnica'] || m['UbicacionTecnica'] || m['Codigo de equipo'] || '';
         const nombreMotor = m['Motor'] || m['NombreMotor'] || ubTecnica;
+        const keyNorm = normalizarTexto(ubTecnica);
         
+        // Identificar el origen (SISAC / BBTI / POWER) desde las inspecciones de este motor
+        const inspEq = db.inspecciones.find(i => {
+            const cod = normalizarTexto(i['Ubicacion tecnica'] || i['Ubicación técnica'] || i['UbicacionTecnica'] || i['Codigo de equipo']);
+            return cod === keyNorm && cod !== '';
+        });
+        const origenEtiqueta = inspEq && inspEq._origenHoja ? ` (${inspEq._origenHoja})` : '';
+
         const opt = document.createElement('option');
         opt.value = idx;
-        opt.innerText = ubTecnica ? `${ubTecnica} - ${nombreMotor}` : nombreMotor;
+        opt.innerText = (ubTecnica ? `${ubTecnica} - ${nombreMotor}` : nombreMotor) + origenEtiqueta;
         select.appendChild(opt);
     });
 
@@ -295,7 +292,13 @@ function poblarSelectorMotoresSidebar() {
 }
 
 function seleccionarMotorDesdeFiltro(indexStr) {
-    if (indexStr === "") return;
+    if (indexStr === "TODOS" || indexStr === "") {
+        const vistaPredictivo = document.getElementById('vista-predictivo');
+        if (vistaPredictivo && vistaPredictivo.style.display !== 'none') {
+            renderizarModuloPredictivo();
+        }
+        return;
+    }
     seleccionarMotorPorIndice(parseInt(indexStr, 10));
 }
 
@@ -318,7 +321,6 @@ function extraerMatrizHoja(worksheet) {
     for (let i = headerRowIndex + 1; i < matrix.length; i++) {
         const row = matrix[i];
         if (!row || row.every(val => val === "" || val === null)) continue;
-
         const obj = {};
         headers.forEach((h, colIndex) => {
             if (h) obj[h] = row[colIndex] !== undefined ? row[colIndex] : "";
@@ -333,16 +335,11 @@ function cargarImagenConFallbacks(imgEl, ubTecnica, defaultSrc, placeholderEl) {
         if (imgEl) imgEl.src = defaultSrc;
         return;
     }
-
     const rutas = [
-        `./${ubTecnica}.png`,
-        `./${ubTecnica}.jpg`,
-        `../${ubTecnica}.png`,
-        `../${ubTecnica}.jpg`,
-        `./motores/${ubTecnica}.png`,
-        `./motores/${ubTecnica}.jpg`
+        `./${ubTecnica}.png`, `./${ubTecnica}.jpg`,
+        `../${ubTecnica}.png`, `../${ubTecnica}.jpg`,
+        `./motores/${ubTecnica}.png`, `./motores/${ubTecnica}.jpg`
     ];
-
     let index = 0;
     function intentarSiguiente() {
         if (index < rutas.length) {
@@ -425,7 +422,6 @@ function renderizarCatalogoMotores() {
 
         card.appendChild(imgEl);
         card.appendChild(infoDiv);
-
         if (targetGrid) targetGrid.appendChild(card);
     });
 }
@@ -448,18 +444,14 @@ function seleccionarMotorPorIndice(index) {
     document.getElementById('val-contratista').innerText = m['Contratista'] || '--';
 
     document.getElementById('titulo-tabla-carbones').innerText = `${nombreMotor} - Estado Carbones`;
-    
     const tituloParams = document.getElementById('titulo-parametros-relevantes');
-    if (tituloParams) {
-        tituloParams.innerText = `Parámetros Relevantes - ${nombreMotor} (${ubTecnica})`;
-    }
+    if (tituloParams) tituloParams.innerText = `Parámetros Relevantes - ${nombreMotor} (${ubTecnica})`;
 
     const imgElement = document.getElementById('img-motor');
     const imgCenter = document.getElementById('img-motor-center');
     const placeholder = document.getElementById('img-placeholder');
 
     cargarImagenConFallbacks(imgElement, ubTecnica, 'Motor.png', placeholder);
-
     imgCenter.src = "Motor.png";
     imgCenter.onerror = function() { imgCenter.src = "logo.png"; };
 
@@ -471,9 +463,7 @@ function seleccionarMotorPorIndice(index) {
         return (codInsp === ubTecnicaNorm || codInsp === codEquipoNorm) && codInsp !== '';
     });
 
-    inspeccionesMotorActual.forEach(insp => {
-        if (!insp._dateObj) insp._dateObj = parsearFecha(insp['Fecha']);
-    });
+    inspeccionesMotorActual.forEach(insp => { if (!insp._dateObj) insp._dateObj = parsearFecha(insp['Fecha']); });
     inspeccionesMotorActual.sort((a, b) => (a._dateObj ? a._dateObj.getTime() : 0) - (b._dateObj ? b._dateObj.getTime() : 0));
 
     poblarFiltroCarbones();
@@ -482,6 +472,7 @@ function seleccionarMotorPorIndice(index) {
 
 function poblarFiltroCarbones() {
     const selectCarbon = document.getElementById('select-carbon-filtro');
+    if (!selectCarbon) return;
     selectCarbon.innerHTML = '<option value="TODOS">Todos los carbones</option>';
 
     if (inspeccionesMotorActual.length === 0) return;
@@ -527,14 +518,10 @@ function aplicarFiltroRangoFechas() {
     renderizarVistaInspeccionesRango(inspeccionesFiltradas, ubTecnica);
 
     const vistaReportes = document.getElementById('vista-reportes');
-    if (vistaReportes && vistaReportes.style.display !== 'none') {
-        renderizarReporteConsolidado();
-    }
+    if (vistaReportes && vistaReportes.style.display !== 'none') renderizarReporteConsolidado();
 
     const vistaPredictivo = document.getElementById('vista-predictivo');
-    if (vistaPredictivo && vistaPredictivo.style.display !== 'none') {
-        renderizarModuloPredictivo();
-    }
+    if (vistaPredictivo && vistaPredictivo.style.display !== 'none') renderizarModuloPredictivo();
 }
 
 function obtenerValorCampoFlex(obj, posiblesNombres) {
@@ -543,9 +530,7 @@ function obtenerValorCampoFlex(obj, posiblesNombres) {
         const nombreNorm = normalizarTexto(nombre);
         for (let key in obj) {
             if (normalizarTexto(key) === nombreNorm) {
-                if (obj[key] !== undefined && obj[key] !== "" && obj[key] !== null) {
-                    return obj[key];
-                }
+                if (obj[key] !== undefined && obj[key] !== "" && obj[key] !== null) return obj[key];
             }
         }
     }
@@ -553,15 +538,7 @@ function obtenerValorCampoFlex(obj, posiblesNombres) {
 }
 
 function obtenerValorCarbonFlex(insp, indiceNum) {
-    const clavesPosibles = [
-        `C${indiceNum}`,
-        `C0${indiceNum}`,
-        `C-${indiceNum}`,
-        `Carbon${indiceNum}`,
-        `Carbon ${indiceNum}`,
-        `${indiceNum}`
-    ];
-
+    const clavesPosibles = [`C${indiceNum}`, `C0${indiceNum}`, `C-${indiceNum}`, `Carbon${indiceNum}`, `Carbon ${indiceNum}`, `${indiceNum}`];
     for (let k of clavesPosibles) {
         if (insp[k] !== undefined && insp[k] !== "" && insp[k] !== null && !isNaN(parseFloat(insp[k]))) {
             return parseFloat(insp[k]);
@@ -570,7 +547,6 @@ function obtenerValorCarbonFlex(insp, indiceNum) {
     return null;
 }
 
-// BÚSQUEDA MULTICLAVE PARA EXTRAER EL LÍMITE ESPECÍFICO DE CADA MOTOR
 function obtenerLimiteEspecificoMotor(ubTecnica, codEquipo) {
     const keyUbNorm = normalizarTexto(ubTecnica);
     const keyCodNorm = normalizarTexto(codEquipo);
@@ -578,7 +554,6 @@ function obtenerLimiteEspecificoMotor(ubTecnica, codEquipo) {
     if (db.limites[keyUbNorm]) return db.limites[keyUbNorm];
     if (db.limites[keyCodNorm]) return db.limites[keyCodNorm];
 
-    // Búsqueda profunda en caso de pequeñas variaciones de sintaxis entre PC y celular
     const limiteEncontrado = Object.values(db.limites).find(l => {
         if (!l || !l._keyOriginal) return false;
         const normOrig = normalizarTexto(l._keyOriginal);
@@ -592,7 +567,6 @@ function renderizarVistaInspeccionesRango(inspecciones, ubTecnica) {
     const m = db.motores[motorIndexSeleccionado] || {};
     const codEquipo = m['Codigo de equipo'] || m['Código de equipo'] || '';
 
-    // Extracción de límite individual con fallback
     const limites = obtenerLimiteEspecificoMotor(ubTecnica, codEquipo);
 
     if (inspecciones.length === 0) {
@@ -618,7 +592,6 @@ function renderizarVistaInspeccionesRango(inspecciones, ubTecnica) {
     const evalLA = evaluarTemperaturaIndustrial(tempLAcople);
 
     document.getElementById('val-corriente').innerText = corriente !== '--' ? corriente + ' A' : '-- A';
-
     document.getElementById('val-temp-k').innerHTML = `${tempK !== '--' ? tempK + ' °C' : '-- °C'} <span class="badge-status" style="background:${evalK.color}; font-size:8px;">${evalK.estado}</span>`;
     document.getElementById('val-temp-m').innerHTML = `${tempM !== '--' ? tempM + ' °C' : '-- °C'} <span class="badge-status" style="background:${evalM.color}; font-size:8px;">${evalM.estado}</span>`;
     document.getElementById('val-temp-l').innerHTML = `${tempL !== '--' ? tempL + ' °C' : '-- °C'} <span class="badge-status" style="background:${evalL.color}; font-size:8px;">${evalL.estado}</span>`;
@@ -639,7 +612,8 @@ function renderizarVistaInspeccionesRango(inspecciones, ubTecnica) {
         }
     }
 
-    const carbonFiltroSel = document.getElementById('select-carbon-filtro').value;
+    const selectEl = document.getElementById('select-carbon-filtro');
+    const carbonFiltroSel = selectEl ? selectEl.value : 'TODOS';
 
     const container = document.getElementById('contenedor-carbones');
     container.querySelectorAll('.carbon-node').forEach(n => n.remove());
@@ -655,9 +629,7 @@ function renderizarVistaInspeccionesRango(inspecciones, ubTecnica) {
 
     carbonesValidos.forEach((item, idx) => {
         let pctVida = 100;
-        if (limites.nuevo > 0) {
-            pctVida = Math.round((item.val / limites.nuevo) * 100);
-        }
+        if (limites.nuevo > 0) pctVida = Math.round((item.val / limites.nuevo) * 100);
         if (pctVida < 0) pctVida = 0;
 
         let estadoTexto = "CAMBIAR PRONTO";
@@ -812,11 +784,8 @@ function configurarOpcionesPanZoom(labelEjeY, dataValores = []) {
 
 function desplazarGrafico(canvasId, deltaPixeles) {
     let chartObj = null;
-    if (canvasId === 'chartDesgaste') {
-        chartObj = chartDesgasteInstance;
-    } else if (miniChartsInstances[canvasId]) {
-        chartObj = miniChartsInstances[canvasId];
-    }
+    if (canvasId === 'chartDesgaste') chartObj = chartDesgasteInstance;
+    else if (miniChartsInstances[canvasId]) chartObj = miniChartsInstances[canvasId];
 
     if (chartObj && typeof chartObj.pan === 'function') {
         chartObj.pan({ x: deltaPixeles }, undefined, 'default');
@@ -892,22 +861,13 @@ async function descargarContenedorComoImagen(idContenedor, nombreArchivo) {
     const estilosPrevios = [];
 
     scrollContainers.forEach(sc => {
-        estilosPrevios.push({
-            el: sc,
-            maxHeight: sc.style.maxHeight,
-            overflow: sc.style.overflow
-        });
+        estilosPrevios.push({ el: sc, maxHeight: sc.style.maxHeight, overflow: sc.style.overflow });
         sc.style.maxHeight = 'none';
         sc.style.overflow = 'visible';
     });
 
     try {
-        const canvas = await html2canvas(contenedor, {
-            scale: 2,
-            useCORS: true,
-            backgroundColor: '#ffffff'
-        });
-
+        const canvas = await html2canvas(contenedor, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
         const enlace = document.createElement('a');
         enlace.download = `${nombreArchivo}_${new Date().toISOString().split('T')[0]}.png`;
         enlace.href = canvas.toDataURL('image/png');
@@ -925,7 +885,6 @@ async function descargarContenedorComoImagen(idContenedor, nombreArchivo) {
 
 function calcularPrediccionCarbonFlex(inspeccionesMotor, indiceCarbon, mmLimite) {
     let lecturas = [];
-    
     const fInicioVal = document.getElementById('fecha-inicio').value;
     const fFinVal = document.getElementById('fecha-fin').value;
     const fInicio = fInicioVal ? new Date(fInicioVal + 'T00:00:00') : new Date('2026-01-01T00:00:00');
@@ -948,7 +907,7 @@ function calcularPrediccionCarbonFlex(inspeccionesMotor, indiceCarbon, mmLimite)
 
     let inicioCicloActual = 0;
     for (let i = 1; i < lecturas.length; i++) {
-        if (lecturas[i].mm - lecturas[i - 1].mm > 3.0) { 
+        if (lecturas[i].mm - lecturas[i - 1].mm > 3.0) {
             inicioCicloActual = i;
         }
     }
@@ -1022,6 +981,7 @@ function calcularPrediccionCarbonFlex(inspeccionesMotor, indiceCarbon, mmLimite)
     };
 }
 
+// RENDERIZAR MÓDULO PREDICTIVO (CON ADAPTABILIDAD SISAC / BBTI AL FILTRAR UN MOTOR SPECÍFICO)
 function renderizarModuloPredictivo() {
     const tbody = document.getElementById('tbody-predictivo');
     if (!tbody) return;
@@ -1032,12 +992,19 @@ function renderizarModuloPredictivo() {
     listaPronosticosGlobal = [];
     let contadorCritico = 0, contadorAtencion = 0, contadorOperativo = 0;
 
-    db.motores.forEach(m => {
+    const selectSidebar = document.getElementById('select-motor-filtro');
+    const motorSeleccionadoVal = selectSidebar ? selectSidebar.value : "TODOS";
+
+    let motoresAEvaluar = db.motores;
+    if (motorSeleccionadoVal !== "TODOS" && motorSeleccionadoVal !== "" && db.motores[motorSeleccionadoVal]) {
+        motoresAEvaluar = [db.motores[motorSeleccionadoVal]];
+    }
+
+    motoresAEvaluar.forEach(m => {
         const ubTecnica = m['Ubicacion tecnica'] || m['Ubicación técnica'] || '';
         const codEquipo = m['Codigo de equipo'] || m['Código de equipo'] || '';
         const nombreMotor = m['Motor'] || ubTecnica;
 
-        // Búsqueda flexible de límites por motor
         const limites = obtenerLimiteEspecificoMotor(ubTecnica, codEquipo);
 
         const keyNorm = normalizarTexto(ubTecnica);
@@ -1055,6 +1022,7 @@ function renderizarModuloPredictivo() {
 
         if (inspMotor.length === 0) return;
         const ultimaInsp = inspMotor[inspMotor.length - 1];
+        const origenHojaStr = ultimaInsp._origenHoja ? ` (${ultimaInsp._origenHoja})` : '';
 
         for (let i = 1; i <= 24; i++) {
             const valActual = obtenerValorCarbonFlex(ultimaInsp, i);
@@ -1083,7 +1051,7 @@ function renderizarModuloPredictivo() {
                     listaPronosticosGlobal.push({
                         carbon: nombreConFase,
                         carbonKey: `C${i}`,
-                        motor: nombreMotor,
+                        motor: nombreMotor + origenHojaStr,
                         ubTecnica: ubTecnica,
                         mmUltimo: valActual,
                         limite: limites.limite,
@@ -1107,7 +1075,7 @@ function renderizarModuloPredictivo() {
     document.getElementById('kpi-predictivo-operativo').innerText = contadorOperativo;
 
     if (listaPronosticosGlobal.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#94a3b8; padding: 20px;">Sin suficientes datos del año 2026 para proyectar desgaste.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#94a3b8; padding: 20px;">Sin suficientes datos para proyectar desgaste en el equipo seleccionado.</td></tr>';
         if (chartPredictivoInstance) chartPredictivoInstance.destroy();
         return;
     }
@@ -1161,7 +1129,7 @@ function renderizarGraficoPredictivoGlobal(pronosticoTop) {
             labels: labelsFechas,
             datasets: [
                 {
-                    label: `Medición Real (2026) - ${pronosticoTop.carbon} (${pronosticoTop.ubTecnica})`,
+                    label: `Medición Real - ${pronosticoTop.carbon} (${pronosticoTop.ubTecnica})`,
                     data: dataReal,
                     borderColor: '#0284c7',
                     backgroundColor: '#0284c7',
@@ -1233,7 +1201,6 @@ function renderizarReporteConsolidado() {
         const ubTecnica = m['Ubicacion tecnica'] || m['Ubicación técnica'] || '';
         const codEquipo = m['Codigo de equipo'] || m['Código de equipo'] || '';
 
-        // Extracción de límite individual con fallback
         const limites = obtenerLimiteEspecificoMotor(ubTecnica, codEquipo);
 
         const keyNorm = normalizarTexto(ubTecnica);
@@ -1537,29 +1504,23 @@ function renderizarGraficoReporteMotor(canvasId, inspeccionesMotor, carbonesItem
         });
     }
 
-    if (graficosReporteInstances[canvasId]) {
-        graficosReporteInstances[canvasId].destroy();
-    }
+    if (graficosReporteInstances[canvasId]) graficosReporteInstances[canvasId].destroy();
 
     const ctx = canvasEl.getContext('2d');
-    const chartInst = new Chart(ctx, {
+    graficosReporteInstances[canvasId] = new Chart(ctx, {
         type: 'line',
         data: { labels: labelsFechas, datasets: datasets },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             layout: { padding: { top: 32, right: 40, bottom: 8, left: 8 } },
-            plugins: {
-                legend: { position: 'top', labels: { boxWidth: 10, font: { size: 9 }, usePointStyle: true } }
-            },
+            plugins: { legend: { position: 'top', labels: { boxWidth: 10, font: { size: 9 }, usePointStyle: true } } },
             scales: {
                 x: { ticks: { font: { size: 8 }, maxRotation: 45 } },
                 y: { title: { display: true, text: 'Medida (mm)', font: { size: 8, weight: 'bold' } } }
             }
         }
     });
-
-    graficosReporteInstances[canvasId] = chartInst;
 }
 
 function renderizarHistorialReportesUI() {
@@ -1567,7 +1528,6 @@ function renderizarHistorialReportesUI() {
     if (!contenedor) return;
 
     let listaHistorial = [];
-
     if (db.historialExcel && db.historialExcel.length > 0) {
         listaHistorial = db.historialExcel.map((row, idx) => {
             const fechaVal = obtenerValorCampoFlex(row, ['FECHA', 'Fecha', 'fecha']);
@@ -1589,26 +1549,22 @@ function renderizarHistorialReportesUI() {
     }
 
     if (listaHistorial.length === 0) {
-        contenedor.innerHTML = '<div style="text-align:center; color:#94a3b8; padding:30px;">No hay reportes archivados actualmente. Haz clic en "Actualizar Base" para sincronizar con SharePoint.</div>';
+        contenedor.innerHTML = '<div style="text-align:center; color:#94a3b8; padding:30px;">No hay reportes archivados actualmente. Haz clic en "Actualizar Base" para sincronizar.</div>';
         return;
     }
 
     contenedor.innerHTML = '';
-
     listaHistorial.slice().reverse().forEach((item) => {
         const itemDiv = document.createElement('div');
         itemDiv.className = 'historial-item';
         itemDiv.style.marginBottom = '12px';
-
         itemDiv.innerHTML = `
             <div class="historial-header" style="display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px;">
                 <div>
                     <strong style="color: var(--primary-blue); font-size: 13px;">
                         <i class="fa-regular fa-file-pdf" style="color: #dc2626; margin-right: 6px; font-size: 16px;"></i> Reporte Emitido: ${item.fecha}
                     </strong>
-                    <span style="margin-left: 12px; font-size: 11px; color: #64748b;">
-                        (${item.totalObservados} Motores con Eventos)
-                    </span>
+                    <span style="margin-left: 12px; font-size: 11px; color: #64748b;">(${item.totalObservados} Motores con Eventos)</span>
                 </div>
                 <div>
                     <a href="${item.linkPdf}" target="_blank" rel="noopener noreferrer" class="btn-action" style="font-size: 11px; background: #0284c7; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 4px; color: #fff;">
@@ -1701,12 +1657,7 @@ async function enviarReporteOutlookAutomatico(esManual = false) {
         margin: [8, 8, 8, 8],
         filename: `Reporte_Carbones_UNACEM_${new Date().toISOString().split('T')[0]}.pdf`,
         image: { type: 'jpeg', quality: 0.65 },
-        html2canvas: { 
-            scale: 1.2, 
-            useCORS: true, 
-            logging: false,
-            removeContainer: true 
-        },
+        html2canvas: { scale: 1.2, useCORS: true, logging: false, removeContainer: true },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true },
         pagebreak: { mode: ['css', 'legacy'] }
     };
@@ -1734,10 +1685,10 @@ async function enviarReporteOutlookAutomatico(esManual = false) {
                 <div style="font-family: Arial, sans-serif; color: #1e293b;">
                     <h2 style="color: #002244;">UNACEM - Sistema de Inspección y Monitoreo</h2>
                     <p>Estimados,</p>
-                    <p>Se adjunta el reporte consolidado con el desglose de motores observados, carbones cambiados y tendencias térmicas correspondiente a la inspección.</p>
+                    <p>Se adjunta el reporte consolidado correspondiente a la inspección.</p>
                     <p><strong>Fecha de Generación:</strong> ${hoyStr}</p>
                     <hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 15px 0;">
-                    <small style="color: #64748b;">Mensaje generado automáticamente por el sistema de mantenimiento predictivo Planta Condorcocha.</small>
+                    <small style="color: #64748b;">Mensaje generado automáticamente por el sistema de mantenimiento predictivo.</small>
                 </div>
             `,
             nombreArchivo: `Reporte_Carbones_UNACEM_${new Date().toISOString().split('T')[0]}.pdf`,
@@ -1755,10 +1706,7 @@ async function enviarReporteOutlookAutomatico(esManual = false) {
         if (respuesta.ok) {
             console.log("Reporte enviado con éxito.");
             if (esManual) alert("¡Reporte procesado e informado exitosamente!");
-            
-            setTimeout(() => {
-                sincronizarBaseDesdePowerAutomate();
-            }, 3000);
+            setTimeout(() => { sincronizarBaseDesdePowerAutomate(); }, 3000);
         } else {
             console.error("Error enviando:", respuesta.status);
             if (esManual) alert("Error al conectar con Power Automate.");
@@ -1787,12 +1735,7 @@ function descargarReportePDF() {
         margin: [8, 8, 8, 8],
         filename: `Informe_Inspeccion_Carbones_UNACEM_${new Date().toISOString().split('T')[0]}.pdf`,
         image: { type: 'jpeg', quality: 0.65 },
-        html2canvas: { 
-            scale: 1.2, 
-            useCORS: true, 
-            logging: false,
-            removeContainer: true 
-        },
+        html2canvas: { scale: 1.2, useCORS: true, logging: false, removeContainer: true },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true },
         pagebreak: { mode: ['css', 'legacy'] }
     };
