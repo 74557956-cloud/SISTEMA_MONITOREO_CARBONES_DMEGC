@@ -84,25 +84,19 @@ async function sincronizarBaseDesdePowerAutomate() {
                 });
             }
 
-            // C) Inspecciones (Identificando origen SISAC / BBTI / POWER)
+            // C) Inspecciones
             db.inspecciones = [];
             wbBase.SheetNames.forEach(sName => {
                 const norm = normalizarTexto(sName);
-                let origenNombre = 'SISAC';
-                if (norm.includes('bbti')) origenNombre = 'BBTI';
-                else if (norm.includes('power')) origenNombre = 'POWER';
-                else if (norm.includes('sisac')) origenNombre = 'SISAC';
-
                 if (norm.includes('power') || norm.includes('bbti') || norm.includes('sisac')) {
                     const filasHoja = extraerMatrizHoja(wbBase.Sheets[sName]);
-                    filasHoja.forEach(f => f._origenHoja = origenNombre);
                     db.inspecciones = db.inspecciones.concat(filasHoja);
                 }
             });
             db.inspecciones.forEach(i => i._dateObj = parsearFecha(i['Fecha']));
         }
 
-        // 2. Historial de reportes PDF
+        // 2. Historial
         if (jsonRespuesta.historial) {
             const binaryHist = atob(jsonRespuesta.historial);
             const bytesHist = new Uint8Array(binaryHist.length);
@@ -256,38 +250,56 @@ function establecerRangoFechasPredeterminado() {
     }
 }
 
-// POBLAR EL SELECTOR DEL SIDEBAR MOSTRANDO SISAC / BBTI / POWER EN EL TEXTO DEL MOTOR
+// POBLAR EL SELECTOR DEL SIDEBAR MOSTRANDO EL CONTRATISTA REAL DE LA HOJA MOTORES
 function poblarSelectorMotoresSidebar() {
     const select = document.getElementById('select-motor-filtro');
+    const selectContratista = document.getElementById('select-contratista-filtro');
     if (!select) return;
     
+    const contratistaSel = selectContratista ? selectContratista.value : "TODOS";
     const valorSeleccionadoPrevio = select.value;
+
     select.innerHTML = '<option value="TODOS">-- Todos los Motores --</option>';
 
     if (!db.motores || db.motores.length === 0) return;
 
     db.motores.forEach((m, idx) => {
-        const ubTecnica = m['Ubicacion tecnica'] || m['Ubicación técnica'] || m['UbicacionTecnica'] || m['Codigo de equipo'] || '';
-        const nombreMotor = m['Motor'] || m['NombreMotor'] || ubTecnica;
-        const keyNorm = normalizarTexto(ubTecnica);
-        
-        // Identificar el origen (SISAC / BBTI / POWER) desde las inspecciones de este motor
-        const inspEq = db.inspecciones.find(i => {
-            const cod = normalizarTexto(i['Ubicacion tecnica'] || i['Ubicación técnica'] || i['UbicacionTecnica'] || i['Codigo de equipo']);
-            return cod === keyNorm && cod !== '';
-        });
-        const origenEtiqueta = inspEq && inspEq._origenHoja ? ` (${inspEq._origenHoja})` : '';
+        const contratistaMotor = (m['Contratista'] || 'UNACEM').trim().toUpperCase();
 
-        const opt = document.createElement('option');
-        opt.value = idx;
-        opt.innerText = (ubTecnica ? `${ubTecnica} - ${nombreMotor}` : nombreMotor) + origenEtiqueta;
-        select.appendChild(opt);
+        if (contratistaSel === "TODOS" || contratistaMotor === contratistaSel) {
+            const ubTecnica = m['Ubicacion tecnica'] || m['Ubicación técnica'] || m['UbicacionTecnica'] || m['Codigo de equipo'] || '';
+            const nombreMotor = m['Motor'] || m['NombreMotor'] || ubTecnica;
+
+            const opt = document.createElement('option');
+            opt.value = idx;
+            opt.innerText = `${ubTecnica ? ubTecnica + ' - ' : ''}${nombreMotor} (${contratistaMotor})`;
+            select.appendChild(opt);
+        }
     });
 
     if (valorSeleccionadoPrevio !== "" && select.querySelector(`option[value="${valorSeleccionadoPrevio}"]`)) {
         select.value = valorSeleccionadoPrevio;
     } else {
-        select.value = motorIndexSeleccionado;
+        select.value = "TODOS";
+    }
+}
+
+function filtrarPorContratista(contratistaVal) {
+    poblarSelectorMotoresSidebar();
+    
+    const vistaPredictivo = document.getElementById('vista-predictivo');
+    if (vistaPredictivo && vistaPredictivo.style.display !== 'none') {
+        renderizarModuloPredictivo();
+    }
+    
+    const vistaReportes = document.getElementById('vista-reportes');
+    if (vistaReportes && vistaReportes.style.display !== 'none') {
+        renderizarReporteConsolidado();
+    }
+
+    const vistaMotores = document.getElementById('vista-motores');
+    if (vistaMotores && vistaMotores.style.display !== 'none') {
+        renderizarCatalogoMotores();
     }
 }
 
@@ -390,39 +402,45 @@ function renderizarCatalogoMotores() {
         'HORNO 2': document.getElementById('grid-horno-2')
     };
 
+    const selectContratista = document.getElementById('select-contratista-filtro');
+    const contratistaSel = selectContratista ? selectContratista.value : "TODOS";
+
     for (let key in grupos) { if (grupos[key]) grupos[key].innerHTML = ''; }
 
     db.motores.forEach((m, idx) => {
-        const ubPlanta = (m['Ubicacion en planta'] || m['Ubicación en planta'] || 'HORNO 3').trim().toUpperCase();
-        const ubTecnica = m['Ubicacion tecnica'] || m['Ubicación técnica'] || '';
-        const nombreMotor = m['Motor'] || ubTecnica;
-        const codEquipo = m['Codigo de equipo'] || m['Código de equipo'] || '';
-        const contratista = m['Contratista'] || 'UNACEM';
+        const contratistaMotor = (m['Contratista'] || 'UNACEM').trim().toUpperCase();
 
-        const targetGrid = grupos[ubPlanta] || grupos['HORNO 3'];
-        const isSelected = (idx === motorIndexSeleccionado) ? 'selected' : '';
+        if (contratistaSel === "TODOS" || contratistaMotor === contratistaSel) {
+            const ubPlanta = (m['Ubicacion en planta'] || m['Ubicación en planta'] || 'HORNO 3').trim().toUpperCase();
+            const ubTecnica = m['Ubicacion tecnica'] || m['Ubicación técnica'] || '';
+            const nombreMotor = m['Motor'] || ubTecnica;
+            const codEquipo = m['Codigo de equipo'] || m['Código de equipo'] || '';
 
-        const card = document.createElement('div');
-        card.className = `motor-select-card ${isSelected}`;
-        card.onclick = function() {
-            seleccionarMotorPorIndice(idx);
-            cambiarVista('inicio');
-        };
+            const targetGrid = grupos[ubPlanta] || grupos['HORNO 3'];
+            const isSelected = (idx === motorIndexSeleccionado) ? 'selected' : '';
 
-        const imgEl = document.createElement('img');
-        cargarImagenConFallbacks(imgEl, ubTecnica, 'Motor.png', null);
+            const card = document.createElement('div');
+            card.className = `motor-select-card ${isSelected}`;
+            card.onclick = function() {
+                seleccionarMotorPorIndice(idx);
+                cambiarVista('inicio');
+            };
 
-        const infoDiv = document.createElement('div');
-        infoDiv.className = 'motor-select-info';
-        infoDiv.innerHTML = `
-            <h4>${nombreMotor}</h4>
-            <p><strong>Cód:</strong> ${codEquipo} | <strong>Ub:</strong> ${ubTecnica}</p>
-            <span class="badge-contratista">${contratista}</span>
-        `;
+            const imgEl = document.createElement('img');
+            cargarImagenConFallbacks(imgEl, ubTecnica, 'Motor.png', null);
 
-        card.appendChild(imgEl);
-        card.appendChild(infoDiv);
-        if (targetGrid) targetGrid.appendChild(card);
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'motor-select-info';
+            infoDiv.innerHTML = `
+                <h4>${nombreMotor}</h4>
+                <p><strong>Cód:</strong> ${codEquipo} | <strong>Ub:</strong> ${ubTecnica}</p>
+                <span class="badge-contratista">${contratistaMotor}</span>
+            `;
+
+            card.appendChild(imgEl);
+            card.appendChild(infoDiv);
+            if (targetGrid) targetGrid.appendChild(card);
+        }
     });
 }
 
@@ -981,7 +999,7 @@ function calcularPrediccionCarbonFlex(inspeccionesMotor, indiceCarbon, mmLimite)
     };
 }
 
-// RENDERIZAR MÓDULO PREDICTIVO (CON ADAPTABILIDAD SISAC / BBTI AL FILTRAR UN MOTOR SPECÍFICO)
+// RENDERIZAR MÓDULO PREDICTIVO (FILTRADO EXACTO POR CONTRATISTA O MOTOR INDIVIDUAL)
 function renderizarModuloPredictivo() {
     const tbody = document.getElementById('tbody-predictivo');
     if (!tbody) return;
@@ -993,17 +1011,24 @@ function renderizarModuloPredictivo() {
     let contadorCritico = 0, contadorAtencion = 0, contadorOperativo = 0;
 
     const selectSidebar = document.getElementById('select-motor-filtro');
+    const selectContratista = document.getElementById('select-contratista-filtro');
+
     const motorSeleccionadoVal = selectSidebar ? selectSidebar.value : "TODOS";
+    const contratistaSel = selectContratista ? selectContratista.value : "TODOS";
 
     let motoresAEvaluar = db.motores;
+
     if (motorSeleccionadoVal !== "TODOS" && motorSeleccionadoVal !== "" && db.motores[motorSeleccionadoVal]) {
         motoresAEvaluar = [db.motores[motorSeleccionadoVal]];
+    } else if (contratistaSel !== "TODOS") {
+        motoresAEvaluar = db.motores.filter(m => (m['Contratista'] || 'UNACEM').trim().toUpperCase() === contratistaSel);
     }
 
     motoresAEvaluar.forEach(m => {
         const ubTecnica = m['Ubicacion tecnica'] || m['Ubicación técnica'] || '';
         const codEquipo = m['Codigo de equipo'] || m['Código de equipo'] || '';
         const nombreMotor = m['Motor'] || ubTecnica;
+        const contratistaMotor = (m['Contratista'] || 'UNACEM').trim().toUpperCase();
 
         const limites = obtenerLimiteEspecificoMotor(ubTecnica, codEquipo);
 
@@ -1022,7 +1047,6 @@ function renderizarModuloPredictivo() {
 
         if (inspMotor.length === 0) return;
         const ultimaInsp = inspMotor[inspMotor.length - 1];
-        const origenHojaStr = ultimaInsp._origenHoja ? ` (${ultimaInsp._origenHoja})` : '';
 
         for (let i = 1; i <= 24; i++) {
             const valActual = obtenerValorCarbonFlex(ultimaInsp, i);
@@ -1051,7 +1075,7 @@ function renderizarModuloPredictivo() {
                     listaPronosticosGlobal.push({
                         carbon: nombreConFase,
                         carbonKey: `C${i}`,
-                        motor: nombreMotor + origenHojaStr,
+                        motor: `${nombreMotor} (${contratistaMotor})`,
                         ubTecnica: ubTecnica,
                         mmUltimo: valActual,
                         limite: limites.limite,
@@ -1075,7 +1099,7 @@ function renderizarModuloPredictivo() {
     document.getElementById('kpi-predictivo-operativo').innerText = contadorOperativo;
 
     if (listaPronosticosGlobal.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#94a3b8; padding: 20px;">Sin suficientes datos para proyectar desgaste en el equipo seleccionado.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#94a3b8; padding: 20px;">Sin suficientes datos para proyectar desgaste en los filtros seleccionados.</td></tr>';
         if (chartPredictivoInstance) chartPredictivoInstance.destroy();
         return;
     }
@@ -1194,10 +1218,17 @@ function renderizarReporteConsolidado() {
 
     const fInicioVal = document.getElementById('fecha-inicio').value;
     const fFinVal = document.getElementById('fecha-fin').value;
+    const selectContratista = document.getElementById('select-contratista-filtro');
+    const contratistaSel = selectContratista ? selectContratista.value : "TODOS";
+
     const fInicio = fInicioVal ? new Date(fInicioVal + 'T00:00:00') : null;
     const fFin = fFinVal ? new Date(fFinVal + 'T23:59:59') : null;
 
     db.motores.forEach((m, idxMotor) => {
+        const contratistaMotor = (m['Contratista'] || 'UNACEM').trim().toUpperCase();
+
+        if (contratistaSel !== "TODOS" && contratistaMotor !== contratistaSel) return;
+
         const ubTecnica = m['Ubicacion tecnica'] || m['Ubicación técnica'] || '';
         const codEquipo = m['Codigo de equipo'] || m['Código de equipo'] || '';
 
@@ -1350,7 +1381,7 @@ function renderizarReporteConsolidado() {
                 motor: m['Motor'] || ubTecnica,
                 ubTecnica: ubTecnica,
                 ubPlanta: m['Ubicacion en planta'] || m['Ubicación en planta'] || '--',
-                contratista: m['Contratista'] || 'UNACEM',
+                contratista: contratistaMotor,
                 estadoPredominante: badgeTexto,
                 carbones: detallesCarbonesAnomalia,
                 temperaturas: detallesTemperaturaAnomalia,
@@ -1370,7 +1401,7 @@ function renderizarReporteConsolidado() {
                 <div class="cabecera-motor-reporte">
                     <div>
                         <strong style="font-size: 13px; color: var(--primary-blue);">${m['Motor'] || ubTecnica}</strong><br>
-                        <small style="color: #64748b;"><strong>Ub. Técnica:</strong> ${ubTecnica} | <strong>Planta:</strong> ${m['Ubicacion en planta'] || '--'} | <strong>Contratista:</strong> ${m['Contratista'] || 'UNACEM'}</small>
+                        <small style="color: #64748b;"><strong>Ub. Técnica:</strong> ${ubTecnica} | <strong>Planta:</strong> ${m['Ubicacion en planta'] || '--'} | <strong>Contratista:</strong> ${contratistaMotor}</small>
                     </div>
                     <div>
                         <span class="badge-status ${badgeClase}">${badgeTexto}</span>
