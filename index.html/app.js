@@ -239,7 +239,7 @@ function establecerRangoFechasPredeterminado() {
     const fIniInput = document.getElementById('fecha-inicio');
     const fFinInput = document.getElementById('fecha-fin');
 
-    if (fIniInput && !fIniInput.value) fIniInput.value = "2026-01-01";
+    if (fIniInput && !fIniInput.value) fIniInput.value = "2024-01-01";
 
     if (fFinInput && !fFinInput.value && db.inspecciones && db.inspecciones.length > 0) {
         const fechasValidas = db.inspecciones.filter(i => i._dateObj).map(i => i._dateObj.getTime());
@@ -250,7 +250,6 @@ function establecerRangoFechasPredeterminado() {
     }
 }
 
-// POBLAR EL SELECTOR DEL SIDEBAR MOSTRANDO EL CONTRATISTA REAL DE LA HOJA MOTORES
 function poblarSelectorMotoresSidebar() {
     const select = document.getElementById('select-motor-filtro');
     const selectContratista = document.getElementById('select-contratista-filtro');
@@ -581,19 +580,31 @@ function obtenerLimiteEspecificoMotor(ubTecnica, codEquipo) {
     return limiteEncontrado || { nuevo: 40, limite: 20 };
 }
 
+/* ==========================================================================
+   RENDERIZADO DE VISTA E INSPECCIONES (CORREGIDO PARA INTERVALOS DE MÁS MESES)
+   ========================================================================== */
 function renderizarVistaInspeccionesRango(inspecciones, ubTecnica) {
     const m = db.motores[motorIndexSeleccionado] || {};
     const codEquipo = m['Codigo de equipo'] || m['Código de equipo'] || '';
 
     const limites = obtenerLimiteEspecificoMotor(ubTecnica, codEquipo);
 
-    if (inspecciones.length === 0) {
+    // FILTRAR INSPECCIONES QUE SÍ TENGAN MEDICIONES REALES DE CARBONES
+    const inspeccionesConDatos = inspecciones.filter(insp => {
+        for (let i = 1; i <= 24; i++) {
+            if (obtenerValorCarbonFlex(insp, i) !== null) return true;
+        }
+        return false;
+    });
+
+    if (inspeccionesConDatos.length === 0) {
         limpiarTablasYGraficos();
         return;
     }
 
-    const ultimaInsp = inspecciones[inspecciones.length - 1];
-    const penultimaInsp = inspecciones.length > 1 ? inspecciones[inspecciones.length - 2] : null;
+    // OBTENER LA ÚLTIMA Y PENÚLTIMA INSPECCIÓN REAL CON DATOS
+    const ultimaInsp = inspeccionesConDatos[inspeccionesConDatos.length - 1];
+    const penultimaInsp = inspeccionesConDatos.length > 1 ? inspeccionesConDatos[inspeccionesConDatos.length - 2] : null;
 
     const corriente = obtenerValorCampoFlex(ultimaInsp, ['Corriente', 'Amp']);
     const tempK = obtenerValorCampoFlex(ultimaInsp, ['K', 'Temp K', 'Temperatura K']);
@@ -680,7 +691,8 @@ function renderizarVistaInspeccionesRango(inspecciones, ubTecnica) {
         container.appendChild(node);
 
         const valActual = item.val;
-        const valAnterior = penultimaInsp ? obtenerValorCarbonFlex(penultimaInsp, idx + 1) : null;
+        const numCarbonIndex = parseInt(item.key.replace(/\D/g, ''), 10);
+        const valAnterior = penultimaInsp ? obtenerValorCarbonFlex(penultimaInsp, numCarbonIndex) : null;
 
         let desgasteStr = "--";
         let badgeDesgasteClass = "desgaste-cero";
@@ -736,15 +748,15 @@ function renderizarVistaInspeccionesRango(inspecciones, ubTecnica) {
         itemsParaGrafico = carbonesValidos.filter(c => c.key === carbonFiltroSel);
     }
 
-    renderizarGraficoTendenciaRango(inspecciones, itemsParaGrafico);
+    renderizarGraficoTendenciaRango(inspeccionesConDatos, itemsParaGrafico);
 
-    renderizarMinigraficaParametro('chartMiniCorriente', inspecciones, ['Corriente', 'Amp'], '#16a34a');
-    renderizarMinigraficaParametro('chartMiniK', inspecciones, ['K', 'Temp K', 'Temperatura K'], '#d90429');
-    renderizarMinigraficaParametro('chartMiniM', inspecciones, ['M', 'Temp M', 'Temperatura M'], '#ea580c');
-    renderizarMinigraficaParametro('chartMiniL', inspecciones, ['L', 'Temp L', 'Temperatura L'], '#0284c7');
-    renderizarMinigraficaParametro('chartMiniCarcaza', inspecciones, ['Carcaza', 'Carcasa'], '#0284c7');
-    renderizarMinigraficaParametro('chartMiniLLibre', inspecciones, ['L. Libre', 'L.Libre'], '#2563eb');
-    renderizarMinigraficaParametro('chartMiniLAcople', inspecciones, ['L. Acople', 'L.Acople'], '#4f46e5');
+    renderizarMinigraficaParametro('chartMiniCorriente', inspeccionesConDatos, ['Corriente', 'Amp'], '#16a34a');
+    renderizarMinigraficaParametro('chartMiniK', inspeccionesConDatos, ['K', 'Temp K', 'Temperatura K'], '#d90429');
+    renderizarMinigraficaParametro('chartMiniM', inspeccionesConDatos, ['M', 'Temp M', 'Temperatura M'], '#ea580c');
+    renderizarMinigraficaParametro('chartMiniL', inspeccionesConDatos, ['L', 'Temp L', 'Temperatura L'], '#0284c7');
+    renderizarMinigraficaParametro('chartMiniCarcaza', inspeccionesConDatos, ['Carcaza', 'Carcasa'], '#0284c7');
+    renderizarMinigraficaParametro('chartMiniLLibre', inspeccionesConDatos, ['L. Libre', 'L.Libre'], '#2563eb');
+    renderizarMinigraficaParametro('chartMiniLAcople', inspeccionesConDatos, ['L. Acople', 'L.Acople'], '#4f46e5');
 }
 
 function configurarOpcionesPanZoom(labelEjeY, dataValores = []) {
@@ -901,21 +913,22 @@ async function descargarContenedorComoImagen(idContenedor, nombreArchivo) {
     }
 }
 
+/* ==========================================================================
+   CÁLCULO PREDICTIVO (CORREGIDO PARA CUALQUIER MES / AÑO REGISTRADO)
+   ========================================================================== */
 function calcularPrediccionCarbonFlex(inspeccionesMotor, indiceCarbon, mmLimite) {
     let lecturas = [];
     const fInicioVal = document.getElementById('fecha-inicio').value;
     const fFinVal = document.getElementById('fecha-fin').value;
-    const fInicio = fInicioVal ? new Date(fInicioVal + 'T00:00:00') : new Date('2026-01-01T00:00:00');
+    const fInicio = fInicioVal ? new Date(fInicioVal + 'T00:00:00') : null;
     const fFin = fFinVal ? new Date(fFinVal + 'T23:59:59') : null;
 
     inspeccionesMotor.forEach(insp => {
         const val = obtenerValorCarbonFlex(insp, indiceCarbon);
         const fechaObj = insp._dateObj || parsearFecha(insp['Fecha']);
         if (val !== null && fechaObj) {
-            if (fechaObj.getFullYear() === 2026) {
-                if (fechaObj >= fInicio && (!fFin || fechaObj <= fFin)) {
-                    lecturas.push({ fecha: fechaObj, mm: val });
-                }
+            if ((!fInicio || fechaObj >= fInicio) && (!fFin || fechaObj <= fFin)) {
+                lecturas.push({ fecha: fechaObj, mm: val });
             }
         }
     });
@@ -999,7 +1012,6 @@ function calcularPrediccionCarbonFlex(inspeccionesMotor, indiceCarbon, mmLimite)
     };
 }
 
-// RENDERIZAR MÓDULO PREDICTIVO (FILTRADO EXACTO POR CONTRATISTA O MOTOR INDIVIDUAL)
 function renderizarModuloPredictivo() {
     const tbody = document.getElementById('tbody-predictivo');
     if (!tbody) return;
